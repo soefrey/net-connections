@@ -1,0 +1,5 @@
+# Written by Claude Code when it loads the mod: this build's API types, the
+# connected MCP tools and a tsconfig. Machine-specific; never commit.
+.claude-plugin/types/
+
+node_modules/

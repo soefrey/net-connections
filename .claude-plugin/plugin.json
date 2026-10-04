@@ -1,0 +1,6 @@
+{
+  "name": "net-connections",
+  "version": "0.1.0",
+  "description": "Pane listing every network connection this session made, traced back to the prompt and command that caused it",
+  "types": "./types/index.d.ts"
+}
