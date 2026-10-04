@@ -43,8 +43,8 @@ const RULES: readonly Rule[] = [
   { test: /\bscoop\s+(?:install|update|search)\b/i, host: 'github.com', protocol: 'HTTPS', reason: 'Scoop package command' },
   { test: /\bbrew\s+(?:install|update|upgrade|tap)\b/i, host: 'formulae.brew.sh', protocol: 'HTTPS', reason: 'Homebrew command' },
   { test: /\b(?:apt|apt-get|dnf|yum|apk)\s+(?:install|update|upgrade|add)\b/i, host: 'system package mirror', protocol: 'HTTP(S)', reason: 'system package manager' },
-  { test: /\b(?:ssh|scp|sftp|rsync|mosh)\s+(?:-\S+\s+)*(?:[\w.-]+@)?([a-z0-9][\w.-]*)/i, host: m => m[1], protocol: 'SSH', reason: 'remote shell / copy command' },
-  { test: /\b(?:ping|nslookup|dig|host|traceroute|tracert|telnet|nc|ncat|whois)\s+(?:-\S+\s+)*([a-z0-9][\w.-]*)/i, host: m => m[1], protocol: 'ICMP/DNS/TCP', reason: 'network diagnostic command' },
+  { test: /(?:^|[;&|(]|\bsudo\s|\btime\s)\s*(?:ssh|scp|sftp|rsync|mosh)\s+(?:-\S+\s+)*(?:[\w.-]+@)?([a-z0-9][\w.-]*)/i, host: m => m[1], protocol: 'SSH', reason: 'remote shell / copy command' },
+  { test: /(?:^|[;&|(]|\bsudo\s|\btime\s)\s*(?:ping|nslookup|dig|host|traceroute|tracert|telnet|nc|ncat|whois)\s+(?:-\S+\s+)*([a-z0-9][\w.-]*)/i, host: m => m[1], protocol: 'ICMP/DNS/TCP', reason: 'network diagnostic command' },
   { test: /\b(?:Test-NetConnection|tnc|Resolve-DnsName|Test-Connection)\s+(?:-\w+\s+)*([a-z0-9][\w.-]*)/i, host: m => m[1], protocol: 'TCP/DNS/ICMP', reason: 'PowerShell network cmdlet' },
   { test: /\b(?:curl|wget|Invoke-WebRequest|iwr|Invoke-RestMethod|irm|http|https|xh)\b/i, host: 'unknown host', protocol: 'HTTP(S)', reason: 'HTTP client in command', ifNoUrl: true },
   { test: /\bclaude\s+plugin\s+(?:install|marketplace\s+(?:add|update))\b/i, host: 'github.com', protocol: 'HTTPS', reason: 'plugin install fetches from a marketplace', ifNoUrl: true },
@@ -69,7 +69,11 @@ export function protocolOf(url: string): string {
   return scheme === '' ? 'HTTP(S)' : scheme.toUpperCase()
 }
 
-export function detectShell(command: string): Target[] {
+// The body of a heredoc is data being written, not a command: its words and URLs connect to nothing.
+const HEREDOC_RE = /(<<-?\s*(['"]?)(\w+)\2[^\n]*\n)[\s\S]*?\n[ \t]*\3(?=\s|$)/g
+
+export function detectShell(raw: string): Target[] {
+  const command = raw.replace(HEREDOC_RE, '$1')
   const found = new Map<string, Target>()
   const add = (t: Target) => {
     const was = found.get(t.host)

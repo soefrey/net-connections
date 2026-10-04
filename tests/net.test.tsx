@@ -462,3 +462,11 @@ test('a host only guessed from command text is not remembered', async ($, on) =>
 
   expect(data.get('knownHosts') ?? []).not.toContain('guessed.example.net')
 })
+
+test('prose in a command and heredoc bodies are not read as hosts', () => {
+  expect(detectShell("cat >> notes.md <<'E'\nthe host only sees https://body.example.net/ and nc the rest\nE")).toEqual([])
+  expect(detectShell('echo the host only ran')).toEqual([])
+  expect(detectShell('ssh me@build.example.com ls')[0]!.host).toBe('build.example.com')
+  expect(detectShell('cd x && ping -c1 example.org')[0]!.host).toBe('example.org')
+  expect(detectShell('sudo nslookup example.org')[0]!.host).toBe('example.org')
+})
