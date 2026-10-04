@@ -2,5 +2,13 @@
   "name": "net-connections",
   "version": "0.1.0",
   "description": "Pane listing every network connection this session made, traced back to the prompt and command that caused it",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "flagNewHosts": {
+      "type": "boolean",
+      "title": "Flag new hosts",
+      "description": "Mark hosts in the pane that no earlier session has connected to. Hosts are remembered between sessions; the flag lasts for the session that first saw the host.",
+      "default": true
+    }
+  }
 }

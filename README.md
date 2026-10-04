@@ -49,9 +49,13 @@ By prompt (`g`) and by host (`h`):
 
 ![Connections grouped by host](docs/screenshots/by-host.png)
 
+## New hosts
+
+With the option `flagNewHosts` (on by default; a row in the config menu), a host no earlier session connected to is marked `★` in the list, `★ NEW` in the by-host view, `★ NEW HOST` in its details, and counted in the header. Only hosts the engine or poller actually observed are remembered; a host guessed from command text (`~` or `?`) does not count as seen. Hosts are remembered across sessions, so the flag shows only in the session that first saw the host. The first run flags every host, as none are known yet. With the option off, hosts are still remembered, so switching it on later does not flag everything.
+
 ## Privacy
 
-- Everything stays in the session's memory; nothing is written to disk or sent anywhere.
+- The connection log stays in the session's memory. The only thing written to disk is the list of host names seen so far (the mod's `$.store`, key `knownHosts`, at most 5000 hosts), used for the new-host flag above. Nothing is sent anywhere.
 - Command lines are recorded in full, with two exceptions: home directories are shown as `~`, and credentials (`Authorization` headers, bearer tokens, `--password=…`, `API_KEY=…`, `user:pass@` in URLs, well-known token formats) are masked as `***` before they are kept.
 - The only requests the mod makes itself are the raw-page fetches you ask for with `r`.
 

@@ -396,3 +396,69 @@ test('placeholder destinations are not counted or listed as hosts', async ($, on
   expect(await ui.find({ text: /No host named/ })).toBeDefined()
   await ui.unmount()
 })
+
+// An in-memory `$.store` the test can read back (`mock.store` keeps its contents to itself).
+const memStore = (on: Parameters<typeof mock.clock>[0], entries: Record<string, unknown>) => {
+  const data = new Map(Object.entries(entries))
+  on('store.get', (_$, e) => ({ value: data.get(e.key) }))
+  on('store.set', (_$, e) => (data.set(e.key, e.value), { value: undefined }))
+  return data
+}
+
+const fetchSetup = (on: Parameters<typeof mock.clock>[0]) => {
+  mock.clock(on)
+  mock.env(on, {})
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('tool.call', { tool: 'WebFetch' }, () => ({ result: { bytes: 1, code: 200, codeText: 'OK', result: 'x', durationMs: 1, url: 'https://example.com/' } }))
+}
+
+test('a host no earlier session used is flagged and remembered across sessions', async ($, on) => {
+  fetchSetup(on)
+  const data = memStore(on, { knownHosts: ['old.example.org'] })
+
+  await $.turn.start({ text: 'go', turnId: 'turn-1' })
+  await $.tool.call({ tool: 'WebFetch', url: 'https://example.com/', prompt: 'a' })
+
+  expect(data.get('knownHosts')).toEqual(['old.example.org', 'example.com'])
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ text: /★ 1 new host/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a host an earlier session used is not flagged', async ($, on) => {
+  fetchSetup(on)
+  memStore(on, { knownHosts: ['example.com'] })
+
+  await $.turn.start({ text: 'go', turnId: 'turn-1' })
+  await $.tool.call({ tool: 'WebFetch', url: 'https://example.com/', prompt: 'a' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ text: /new host/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('with the option off hosts are remembered but not flagged', { options: { flagNewHosts: false } }, async ($, on) => {
+  fetchSetup(on)
+  const data = memStore(on, {})
+
+  await $.turn.start({ text: 'go', turnId: 'turn-1' })
+  await $.tool.call({ tool: 'WebFetch', url: 'https://example.com/', prompt: 'a' })
+
+  expect(data.get('knownHosts')).toEqual(['example.com'])
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ text: /new host/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a host only guessed from command text is not remembered', async ($, on) => {
+  mock.clock(on)
+  mock.env(on, {})
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: '', interrupted: false } }))
+  const data = memStore(on, {})
+
+  await $.turn.start({ text: 'go', turnId: 'turn-1' })
+  await $.tool.call({ tool: 'Bash', command: 'curl https://guessed.example.net/' })
+
+  expect(data.get('knownHosts') ?? []).not.toContain('guessed.example.net')
+})

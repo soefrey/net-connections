@@ -32,6 +32,11 @@ const agents = atom({ plugin: 'net-connections', key: 'agents' } as const, {})
 const view = atom({ plugin: 'net-connections', key: 'view' } as const, { mode: 'list', filter: 'all', page: 0 })
 const mounts = atom({ plugin: 'net-connections', key: 'mounts' } as const, { platform: 'unknown', list: [], at: 0 })
 const raw = atom({ plugin: 'net-connections', key: 'raw' } as const, {})
+const newHosts = atom({ plugin: 'net-connections', key: 'newHosts' } as const, [])
+
+// Hosts seen in any session, kept in `$.store` between sessions.
+const KNOWN_KEY = 'knownHosts'
+const MAX_KNOWN = 5000
 
 // A raw body kept past this is cut; the pane says how much it left out.
 const RAW_MAX = 100_000
@@ -177,9 +182,35 @@ async function originFor($: $, agentId: string | undefined): Promise<string | un
   return cur
 }
 
+// The `flagNewHosts` option, set by `register`.
+let flagNewHosts = true
+
+// Store reads and writes run one after the other, so two hosts noted at once both land.
+let noting: Promise<unknown> = Promise.resolve()
+
+/**
+ * Records a host in the cross-session store. A host the store had not seen
+ * before is new in this session: it joins `newHosts`, which the pane flags
+ * until the session ends. The store always learns hosts, so switching the
+ * flag on later does not flag everything.
+ */
+function noteHost($: $, host: string | undefined): Promise<unknown> {
+  if (host === undefined || host === '' || PLACEHOLDER_HOSTS.has(host)) return noting
+  noting = noting.then(async () => {
+    const stored = await $.store.get(KNOWN_KEY)
+    const known = Array.isArray(stored) ? stored.filter((h): h is string => typeof h === 'string') : []
+    if (known.includes(host)) return
+    await $.store.set(KNOWN_KEY, [...known, host].slice(-MAX_KNOWN))
+    if (flagNewHosts) await update($, newHosts, list => (list.includes(host) ? list : [...list, host]))
+  }).catch(() => {})
+  return noting
+}
+
 async function addConn($: $, c: Omit<NetConn, 'seq'>) {
   const kept = cleanConn(c)
   await update($, conns, list => [...list, { ...kept, seq: (list.at(-1)?.seq ?? 0) + 1 }].slice(-MAX_CONNS))
+  // Only a host the engine or poller saw counts: a host guessed from command text may never be contacted.
+  if (kept.kind !== 'local' && kept.confidence === 'observed') await noteHost($, kept.host)
 }
 
 async function patchConn($: $, id: string, p: Partial<NetConn>, more: NetDetail[] = []) {
@@ -188,6 +219,7 @@ async function patchConn($: $, id: string, p: Partial<NetConn>, more: NetDetail[
   await update($, conns, list =>
     list.map(c => (c.id === id ? { ...c, ...kept, details: [...c.details, ...added] } : c)),
   )
+  if (kept.host !== undefined && (await read($, conns)).find(c => c.id === id)?.confidence === 'observed') await noteHost($, kept.host)
 }
 
 async function addPrompt($: $, p: Omit<NetPrompt, 'seq'>) {
@@ -561,7 +593,8 @@ function mountLine(m: NetMount): string {
   return `${m.root} → ${m.source} (${m.protocol})`
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  flagNewHosts = options.flagNewHosts !== false
   let lastCommand: { id: string; at: number; used: boolean } | undefined
 
   on('session.start', async ($, e, next) => {
@@ -783,6 +816,7 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
   const all = await read($, conns)
   const ps = await read($, prompts)
   const v = await read($, view)
+  const fresh = new Set(await read($, newHosts))
   const width = Math.max(30, e.props.bodyColumns)
   const rows = Math.max(8, (e.viewport?.rows ?? 30) - 2)
   const promptById = new Map(ps.map(p => [p.id, p]))
@@ -812,6 +846,7 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
   const tokIn = all.reduce((n, c) => n + Number(c.details.find(d => d.key === 'Input tokens')?.value ?? 0) + Number(c.details.find(d => d.key === 'Cache read tokens')?.value ?? 0), 0)
   const tokOut = all.reduce((n, c) => n + Number(c.details.find(d => d.key === 'Output tokens')?.value ?? 0), 0)
   const running = net.filter(c => c.status === 'running').length
+  const nNew = [...hosts].filter(h => fresh.has(h)).length
 
   const header = (
     <Box flexDirection="column">
@@ -822,6 +857,7 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
         {counts.share ? <Text color={KIND_COLOR.share} bold>{` · ⇄ ${counts.share} file-share access${counts.share === 1 ? '' : 'es'}`}</Text> : null}
         <Text dimColor>{` · ${hosts.size} hosts · ${counts.local} local tool calls · ${ps.length} prompts · ${fmtNum(tokIn)}↑ ${fmtNum(tokOut)}↓ tokens`}</Text>
         {running > 0 ? <Text color="yellow">{` · ${running} open`}</Text> : null}
+        {nNew > 0 ? <Text color="green" bold>{` · ★ ${nNew} new host${nNew === 1 ? '' : 's'}`}</Text> : null}
       </Text>
       <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
         <Button key="v-list" plain hotkey="l" dimColor={v.mode !== 'list'} label="list" onPress={() => setView($, x => ({ ...x, mode: 'list', page: 0, back: [] }))} />
@@ -930,6 +966,7 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
           <Text color={mark.color}>{mark.glyph} </Text>
           <Text color={KIND_COLOR[c.kind]} bold>{KIND_LABEL[c.kind]} </Text>
           <Text bold>{c.host}</Text>
+          {fresh.has(c.host) ? <Text color="green" bold>{'  ★ NEW HOST'}</Text> : null}
           <Text dimColor>{`  #${c.seq}`}</Text>
         </Text>
         {c.kind === 'share' ? (
@@ -1057,7 +1094,7 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
         {items.length === 0 ? <Text dimColor>No connections yet.</Text> : null}
         {items.slice(page * room, page * room + room).map(([host, a], i, shown) => {
           const kinds = [...a.kinds].map(k => KIND_LABEL[k].toLowerCase()).join(',')
-          const label = `${String(a.n).padStart(5)}  ${fmtTime(a.last)}  ${String(a.prompts.size).padStart(7)}  ${kinds.padEnd(14)} ${host}${a.err ? `  (${a.err} failed)` : ''}`
+          const label = `${String(a.n).padStart(5)}  ${fmtTime(a.last)}  ${String(a.prompts.size).padStart(7)}  ${kinds.padEnd(14)} ${fresh.has(host) ? '★ NEW ' : ''}${host}${a.err ? `  (${a.err} failed)` : ''}`
           const placeholder = PLACEHOLDER_HOSTS.has(host)
           const firstPlaceholder = placeholder && (i === 0 || !PLACEHOLDER_HOSTS.has(shown[i - 1]![0]))
           return (
@@ -1115,7 +1152,7 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
         const mark = STATUS_MARK[c.status]
         const parent = parentOf(c)
         const nSeen = seenOf.get(c.id)?.length ?? 0
-        const host = parent !== undefined ? `↳#${parent.seq} ${c.host}` : c.host
+        const host = `${fresh.has(c.host) ? '★ ' : ''}${parent !== undefined ? `↳#${parent.seq} ${c.host}` : c.host}`
         const status = `${c.statusText ?? ''}${nSeen > 0 ? ` → ${nSeen} seen` : ''}`
         const rest = `${String(c.seq).padStart(4)} ${fmtTime(c.startedAt)} ${KIND_LABEL[c.kind].padEnd(5)} ${trunc(host, hostW).padEnd(hostW)} ${fmtDur(durOf(c)).padStart(6)} ${promptLabel(c.promptId).padEnd(5)} ${oneLine(`${status}${c.command ? `  ${c.command}` : ''}`)}`
         return (

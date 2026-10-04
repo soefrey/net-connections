@@ -125,6 +125,8 @@ declare module 'claude-code' {
       mounts: NetMounts
       /** Raw page bodies the pane fetched on request, by connection id. */
       raw: Record<string, NetRaw>
+      /** Hosts no earlier session had seen, flagged for this session only. */
+      newHosts: string[]
     }
   }
 }
