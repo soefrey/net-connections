@@ -891,6 +891,7 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
           ...(v.host !== undefined ? [`host: ${v.host}`] : []),
         ]
       : []),
+    ...(v.mode === 'hosts' ? [`hosts: ${{ session: 'this session', new: 'new in this session', known: 'all known' }[v.hostSet ?? 'session']}`] : []),
     `local tool calls: ${showLocal ? 'shown' : 'hidden'}`,
   ].join(' · ')
 
@@ -1116,10 +1117,20 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
     // Real hosts first; then the rows whose command named no destination.
     const byCount = (x: [string, { n: number }], y: [string, { n: number }]) => y[1].n - x[1].n
     const entries = [...agg.entries()]
-    const items = [...entries.filter(([h]) => !PLACEHOLDER_HOSTS.has(h)).sort(byCount), ...entries.filter(([h]) => PLACEHOLDER_HOSTS.has(h)).sort(byCount)]
+    const sessionItems = [...entries.filter(([h]) => !PLACEHOLDER_HOSTS.has(h)).sort(byCount), ...entries.filter(([h]) => PLACEHOLDER_HOSTS.has(h)).sort(byCount)]
+    const hostSet = v.hostSet ?? 'session'
+    // `known` adds the hosts earlier sessions used, newest first, after the ones this session reached.
+    const stored = hostSet === 'known' ? await $.store.get(KNOWN_KEY) : undefined
+    const earlier = (Array.isArray(stored) ? stored.filter((h): h is string => typeof h === 'string') : []).reverse().filter(h => !agg.has(h))
+    const items: [string, (typeof entries)[number][1] | undefined][] =
+      hostSet === 'new'
+        ? sessionItems.filter(([h]) => fresh.has(h))
+        : hostSet === 'known'
+          ? [...sessionItems, ...earlier.map((h): [string, undefined] => [h, undefined])]
+          : sessionItems
     const mnt = await read($, mounts)
     const mountWord = mnt.platform === 'windows' ? 'mapped drives' : 'network mounts'
-    const room = rows - 8
+    const room = rows - 9
     const pages = Math.max(1, Math.ceil(items.length / room))
     const page = Math.min(v.page, pages - 1)
     return (
@@ -1137,9 +1148,15 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
           </Text>
           <Button key="refresh-mounts" plain hotkey="r" label={`refresh ${mnt.platform === 'windows' ? 'drives' : 'mounts'}`} onPress={() => void loadMounts($)} />
         </Box>
+        <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+          <Button key="hs-session" plain hotkey="i" dimColor={hostSet !== 'session'} label="this session" onPress={() => setView($, x => ({ ...x, hostSet: 'session', page: 0 }))} />
+          <Button key="hs-new" plain hotkey="e" dimColor={hostSet !== 'new'} label={`new in this session ${nNew}`} onPress={() => setView($, x => ({ ...x, hostSet: 'new', page: 0 }))} />
+          <Button key="hs-known" plain hotkey="y" dimColor={hostSet !== 'known'} label="all known" onPress={() => setView($, x => ({ ...x, hostSet: 'known', page: 0 }))} />
+        </Box>
         <Text dimColor>{`${'count'.padStart(5)}  ${'last'.padEnd(8)}  ${'prompts'.padStart(7)}  ${'kinds'.padEnd(14)} host`}</Text>
-        {items.length === 0 ? <Text dimColor>No connections yet.</Text> : null}
+        {items.length === 0 ? <Text dimColor>{hostSet === 'new' ? 'No new hosts in this session.' : hostSet === 'known' ? 'No hosts known yet.' : 'No connections yet.'}</Text> : null}
         {items.slice(page * room, page * room + room).map(([host, a], i, shown) => {
+          if (a === undefined) return <Text key={`hr-${host}`} dimColor wrap="truncate-end">{`${'—'.padStart(5)}  ${'earlier'.padEnd(8)}  ${'—'.padStart(7)}  ${''.padEnd(14)} ${host}`}</Text>
           const kinds = [...a.kinds].map(k => KIND_LABEL[k].toLowerCase()).join(',')
           const label = `${String(a.n).padStart(5)}  ${fmtTime(a.last)}  ${String(a.prompts.size).padStart(7)}  ${kinds.padEnd(14)} ${fresh.has(host) ? '★ NEW ' : ''}${host}${a.err ? `  (${a.err} failed)` : ''}`
           const placeholder = PLACEHOLDER_HOSTS.has(host)

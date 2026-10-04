@@ -470,3 +470,34 @@ test('prose in a command and heredoc bodies are not read as hosts', () => {
   expect(detectShell('cd x && ping -c1 example.org')[0]!.host).toBe('example.org')
   expect(detectShell('sudo nslookup example.org')[0]!.host).toBe('example.org')
 })
+
+test('the by-host view lists new hosts and all known hosts', async ($, on) => {
+  fetchSetup(on)
+  memStore(on, { knownHosts: ['old.example.org', 'example.com'] })
+
+  await $.turn.start({ text: 'go', turnId: 'turn-1' })
+  await $.tool.call({ tool: 'WebFetch', url: 'https://example.com/', prompt: 'a' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'v-hosts' })
+  await ui.press({ key: 'hs-new' })
+  expect(await ui.find({ text: /No new hosts in this session/ })).toBeDefined()
+  await ui.press({ key: 'hs-known' })
+  expect(await ui.find({ text: /earlier\s+.*old\.example\.org/ })).toBeDefined()
+  expect(await ui.find({ text: /Showing: .*hosts: all known/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the new-hosts list shows a host no earlier session used', async ($, on) => {
+  fetchSetup(on)
+  memStore(on, { knownHosts: ['old.example.org'] })
+
+  await $.turn.start({ text: 'go', turnId: 'turn-1' })
+  await $.tool.call({ tool: 'WebFetch', url: 'https://example.com/', prompt: 'a' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'v-hosts' })
+  await ui.press({ key: 'hs-new' })
+  expect(await ui.find({ type: 'Button', text: /★ NEW example\.com/ })).toBeDefined()
+  await ui.unmount()
+})

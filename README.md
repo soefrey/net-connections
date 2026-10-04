@@ -21,7 +21,10 @@ Local tool calls (Read, Edit, …) are kept too, so each prompt's calls are comp
 
 - `/net` opens the pane, also while a turn is running.
 - `/net clear` empties the log. `/net drives` (or `/net mounts`) lists network drives.
-- Keys in the pane: `l` list, `g` by prompt, `h` by host, `z` show local calls, Enter for details, `b` back to where you came from, `n`/`p` older/newer.
+- Click the pane (or press ctrl+x then tab) so it holds the keyboard. `↑`/`↓` then select a connection in the list, Enter opens its details, and `b` goes back with that connection still selected. Esc returns to the prompt.
+- Views: `l` list, `g` by prompt, `h` by host, `z` show or hide local calls. `n`/`p` page to older/newer.
+- Kind filters in the list: `a` all, `m` model, `w` web, `s` shell, `x` mcp, `v` service, `f` share, `k` local. `u` clears a prompt or host you drilled into.
+- The cyan **Showing:** line at the top of the pane says which view, kind filter, prompt or host scope, and local-call setting are active.
 - WebFetch details: `w` tool output, `r` raw page (fetched again by the pane, listed as its own connection), `j`/`k` parts of a long body.
 - Poller rows: `u` jumps to the call that caused it; on a call, `1`–`9` jump to the connections seen under it.
 
@@ -43,7 +46,7 @@ Mods only see what WebFetch hands back: its processed output. `r` fetches the pa
 
 ## Grouped views
 
-By prompt (`g`) and by host (`h`):
+By prompt (`g`) and by host (`h`). The by-host view also lists hosts by set: `i` the hosts this session reached, `e` only the new ones, `y` all known hosts, including those only earlier sessions used (dim, marked `earlier`).
 
 ![Connections grouped by prompt](docs/screenshots/by-prompt.png)
 

@@ -59,6 +59,8 @@ export type NetView = {
   page: number
   /** Whether lists show `local` tool calls; absent means hidden. */
   showLocal?: boolean
+  /** Which hosts the by-host view lists; absent means those this session reached. */
+  hostSet?: 'session' | 'new' | 'known'
   /** Which response a WebFetch detail shows: the tool's output (default) or the page's raw body. */
   response?: 'tool' | 'raw'
   /** Which part of a raw body the detail shows, from 0. */
