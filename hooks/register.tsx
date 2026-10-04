@@ -529,13 +529,21 @@ function navigate($: $, fn: (v: NetView) => NetView) {
   })
 }
 
-/** Returns to the view `navigate` left; with none left, to the list. */
-function goBack($: $) {
-  return update($, view, (v): NetView => {
+/**
+ * Returns to the view `navigate` left; with none left, to the list. Back in
+ * the list, the ring goes to the row the details were of.
+ */
+async function goBack($: $) {
+  const from = await read($, view)
+  const now = await update($, view, (v): NetView => {
     const back = v.back ?? []
     const prev = back.at(-1)
     return prev !== undefined ? { ...prev, back: back.slice(0, -1) } : { ...v, mode: 'list', back: [] }
   })
+  if (from.mode === 'detail' && from.selected !== undefined && now.mode === 'list') {
+    selectedRow = `c-${from.selected}`
+    await $.ui.focus({ requestId: PANE, key: selectedRow }).catch(() => {})
+  }
 }
 
 /**
@@ -808,11 +816,35 @@ export const register: Register = (on, options) => {
       </Box>
     )
   })
+
+  // The selected row follows the ring over the list's rows; the ring in other views, or under the pointer, leaves it be.
+  on('ui.focus', { component: 'Pane', requestId: PANE }, ($, e, next) => {
+    if (e.element?.startsWith('c-')) selectedRow = e.element
+    return next(e)
+  })
+
+  // Up and down move the ring through the list's rows instead of scrolling the pane.
+  on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    if (e.origin.kind !== 'person' || Math.abs(e.by) !== 1 || listRows.length === 0) return next(e)
+    const at = selectedRow === undefined ? -1 : listRows.indexOf(selectedRow)
+    const to = at < 0 ? (e.by > 0 ? 0 : listRows.length - 1) : Math.min(listRows.length - 1, Math.max(0, at + e.by))
+    if (to !== at) {
+      selectedRow = listRows[to]!
+      await $.ui.focus({ requestId: PANE, key: selectedRow })
+    }
+    return {}
+  })
 }
+
+// The list view's row buttons, top to bottom, as last drawn; empty in every other view.
+let listRows: string[] = []
+// The list row last selected (its button key): by the arrows, a click or Enter, or the ring.
+let selectedRow: string | undefined
 
 /** The pane's content; `ui.render` paints it on a black ground. */
 async function renderPane($: $, e: RenderInput<'Pane'>) {
   const { Box, Text, Button } = $.ui.resolve(e)
+  listRows = []
   const all = await read($, conns)
   const ps = await read($, prompts)
   const v = await read($, view)
@@ -1148,7 +1180,9 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
       ) : null}
       <Text dimColor wrap="truncate-end">{`  ${'#'.padStart(4)} ${'time'.padEnd(8)} ${'kind'.padEnd(5)} ${'host'.padEnd(hostW)} ${'dur'.padStart(6)} ${'from'.padEnd(5)} status / command`}</Text>
       {list.length === 0 ? <Text dimColor>{counts.all === 0 ? 'No network connections yet. Web fetches, model requests, MCP calls and networked shell commands appear here.' : 'Nothing matches this filter.'}</Text> : null}
-      {list.slice(page * room, page * room + room).map(c => {
+      {list.slice(page * room, page * room + room).map((c, ri) => {
+        if (ri === 0) listRows = []
+        listRows.push(`c-${c.id}`)
         const mark = STATUS_MARK[c.status]
         const parent = parentOf(c)
         const nSeen = seenOf.get(c.id)?.length ?? 0
@@ -1163,7 +1197,7 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
             ) : (
               <Text color={c.confidence === 'uncertain' ? 'yellow' : undefined} dimColor={c.confidence !== 'uncertain'}>{EVIDENCE_MARK[c.confidence]}</Text>
             )}
-            <Button key={`c-${c.id}`} plain dimColor={c.kind !== 'share' && c.confidence !== 'observed' && c.status !== 'running' && !networked(c)} label={trunc(rest, width - 3)} onPress={() => navigate($, x => ({ ...x, mode: 'detail', selected: c.id }))} />
+            <Button key={`c-${c.id}`} plain autoFocus={ri === 0 ? true : undefined} dimColor={c.kind !== 'share' && c.confidence !== 'observed' && c.status !== 'running' && !networked(c)} label={trunc(rest, width - 3)} onPress={() => { selectedRow = `c-${c.id}`; void navigate($, x => ({ ...x, mode: 'detail', selected: c.id })) }} />
           </Box>
         )
       })}
