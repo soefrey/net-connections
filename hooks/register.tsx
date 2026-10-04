@@ -880,6 +880,20 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
   const running = net.filter(c => c.status === 'running').length
   const nNew = [...hosts].filter(h => fresh.has(h)).length
 
+  // What the view shows right now, since the buttons alone make the choice hard to see.
+  const viewName = { list: 'list', detail: 'details', prompts: 'by prompt', hosts: 'by host' }[v.mode]
+  const showing = [
+    `view: ${viewName}`,
+    ...(v.mode === 'list'
+      ? [
+          `kind: ${v.filter === 'all' ? 'all' : KIND_LABEL[v.filter].toLowerCase()}`,
+          ...(v.promptId !== undefined ? [`prompt: ${promptLabel(v.promptId || undefined)}`] : []),
+          ...(v.host !== undefined ? [`host: ${v.host}`] : []),
+        ]
+      : []),
+    `local tool calls: ${showLocal ? 'shown' : 'hidden'}`,
+  ].join(' · ')
+
   const header = (
     <Box flexDirection="column">
       <Text wrap="truncate-end">
@@ -898,6 +912,7 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
         <Text dimColor>│</Text>
         <Button key="toggle-local" plain hotkey="z" dimColor={!showLocal} label={`local tool calls: ${showLocal ? 'shown' : 'hidden'}`} onPress={() => setView($, x => ({ ...x, showLocal: x.showLocal !== true, page: 0 }))} />
       </Box>
+      <Text color="cyan" wrap="truncate-end">{`Showing: ${showing}`}</Text>
     </Box>
   )
 
@@ -1062,7 +1077,7 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
     }
     const items = [...ps].reverse().map(p => ({ p, cs: byPrompt.get(p.id) ?? [] }))
     if (byPrompt.has('')) items.push({ p: { id: '', seq: 0, kind: 'other', text: '(before any prompt)', at: 0 }, cs: byPrompt.get('') ?? [] })
-    const room = rows - 6
+    const room = rows - 7
     const pages = Math.max(1, Math.ceil(items.length / room))
     const page = Math.min(v.page, pages - 1)
     return (
@@ -1104,7 +1119,7 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
     const items = [...entries.filter(([h]) => !PLACEHOLDER_HOSTS.has(h)).sort(byCount), ...entries.filter(([h]) => PLACEHOLDER_HOSTS.has(h)).sort(byCount)]
     const mnt = await read($, mounts)
     const mountWord = mnt.platform === 'windows' ? 'mapped drives' : 'network mounts'
-    const room = rows - 7
+    const room = rows - 8
     const pages = Math.max(1, Math.ceil(items.length / room))
     const page = Math.min(v.page, pages - 1)
     return (
@@ -1143,7 +1158,7 @@ async function renderPane($: $, e: RenderInput<'Pane'>) {
 
   // ---- list ----
   const list = scoped(all, v, networked)
-  const room = rows - 9
+  const room = rows - 10
   const pages = Math.max(1, Math.ceil(list.length / room))
   const page = Math.min(v.page, pages - 1)
   const scopeText =
